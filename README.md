@@ -1,49 +1,65 @@
 # S2ST: Real-Time Local AI Translator
 *(Speech-to-Speech Translation)*
 
-Sistema profesional de traducción en tiempo real ejecutándose **100% Localmente**. Convierte voz en español a voz en inglés con baja latencia, utilizando la potencia de tu GPU NVIDIA y modelos de última generación de Meta AI.
+A professional real-time translation system running **100% Locally**. Converts Spanish speech to English speech with low latency, leveraging the power of your NVIDIA GPU and Meta AI's state-of-the-art models.
 
-## 🌟 Características
-*   **Privacidad Total**: Nada sale de tu máquina.
-*   **Voz a Voz (S2ST)**: Traducción directa sin pasos intermedios lentos, usando `SeamlessM4T v2`.
-*   **Detección de Voz Inteligente (VAD)**: Utiliza `Silero VAD` para detectar cuándo hablas con precisión milimétrica.
-*   **Video Subtitulado**: Incluye un servicio que inyecta subtítulos en tu cámara web para usarlos en Zoom/Meet.
+## 🌟 Key Features
+*   **Total Privacy**: Nothing leaves your machine.
+*   **Speech-to-Speech (S2ST)**: Direct translation without slow intermediate steps, using `SeamlessM4T v2`.
+*   **Intelligent Voice Detection (VAD)**: Uses **Neural Silero VAD** to detect speech with millimeter precision, ignoring noise and echoes.
+*   **Echo Cancellation**: Implements logic to prevent the system from "hearing itself" and entering feedback loops.
+*   **Subtitled Video**: Includes a service that injects translated subtitles into a virtual webcam for use in Zoom/Meet.
 
-## 💻 Requisitos
-*   **GPU**: NVIDIA RTX (Serie 30, 40 o 50 recomendada) con drivers al día.
+## 💻 Requirements
+*   **GPU**: NVIDIA RTX (Series 30, 40, or 50 recommended) with up-to-date drivers.
 *   **OS**: Linux (Ubuntu 22.04+).
 *   **RAM**: 16 GB+.
+*   **Hardware**: Dedicated Microphone recommended (though PulseAudio loopback is supported).
 
-## 🚀 Inicio Rápido
+## 🚀 Quick Start
 
-El proyecto incluye un script maestro que orquesta todo:
+The project includes a master script that orchestrates everything:
 
 ```bash
 ./start_all.sh
 ```
 
-Esto iniciará:
-1.  **Cerebro de Traducción** (`live_translator.py`): Escuchará tu micrófono y hablará en inglés.
-2.  **Servicio de Video** (`video_service.py`): Creará una cámara virtual y pondrá subtítulos en tu video.
+This will launch:
+1.  **Translation Brain** (`live_translator.py`): Listens to your microphone, translates, and speaks in English.
+2.  **Video Service** (`video_service.py`): Creates a virtual camera and overlays subtitles on your video feed.
 
-## 📂 Archivos del Proyecto
+### Docker Usage (Recommended)
+You can also run the entire stack in a container for maximum isolation:
 
-| Archivo | Descripción |
+```bash
+docker-compose up --build
+```
+*Note: Configured for NVIDIA Runtime and audio/video device passthrough.*
+
+## 📂 Project Files
+
+| File | Description |
 | :--- | :--- |
-| **`live_translator.py`** | El script principal. Carga el modelo de IA en la GPU y procesa el audio. |
-| **`video_service.py`** | Captura tu webcam, añade subtítulos traducidos y emite a una cámara virtual. |
-| **`start_all.sh`** | Script de arranque. Ejecuta todo en el orden correcto. |
-| **`requirements.txt`** | Lista de librerías Python necesarias. |
-| **`subtitle_stream.txt`** | Archivo puente donde se escribe el texto traducido para el video. |
+| **`live_translator.py`** | **The Brain.** Loads the AI model onto the GPU, runs Neural VAD, and processes audio. |
+| **`video_service.py`** | Captures your webcam, adds translated subtitles, and emits to a virtual camera (`/dev/video20`). |
+| **`start_all.sh`** | Startup script. Sets up the environment and executes everything in the correct order. |
+| **`requirements.txt`** | Strict list of Python dependencies (Pointing to PyTorch Nightly for RTX 5060 Ti support). |
+| **`CONTEXT.md`** | Master context file describing architecture and rules for AI assistants (Cursor, etc). |
 
-## 🛠️ Instalación (Si mueves el proyecto)
+## 🛠️ Installation (If moving the project)
 
-1.  **Instalar dependencias de sistema:**
+1.  **Install system dependencies:**
     ```bash
-    sudo apt-get install python3-pip v4l2loopback-dkms ffmpeg
+    sudo apt-get install python3-pip v4l2loopback-dkms ffmpeg python3-venv
     ```
 
-2.  **Instalar dependencias de Python:**
+2.  **Create and activate virtual environment:**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+
+3.  **Install Python dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
