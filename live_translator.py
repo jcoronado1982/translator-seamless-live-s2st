@@ -8,9 +8,10 @@ from contextlib import contextmanager
 import torchaudio.functional as F
 import time
 import scipy.io.wavfile as wavfile
-import scipy.io.wavfile as wavfile
+import scipy.signal # <--- NUEVO IMPORT PARA FILTRO
 import os
 import collections
+import queue
 
 # ==========================================
 # 0. ALSA Suppression
@@ -36,7 +37,7 @@ SILENCE_THRESHOLD = 0.02
 
 def print_header():
     print("\n" + "="*50)
-    print("   🚀 SEAMLESS V20 (Tuple Fix)")
+    print("   🚀 SEAMLESS V20 (Humanized + Anti-Echo)")
     print("="*50 + "\n")
 
 # ==========================================
@@ -76,7 +77,6 @@ def find_active_microphone():
         except: pass
     print("-" * 40)
     
-    # Preferencia por "pulse" si tiene buen audio (monitor)
     if best_mic is not None and max_rms > 0.005:
         print(f"✅ GANADOR INPUT: [{best_mic}] (RMS {max_rms:.4f})")
         return best_mic
@@ -89,18 +89,15 @@ def play_audio_cmd(audio_data, sample_rate):
     try:
         if audio_data is None: return
         audio_data = np.atleast_1d(audio_data)
-        
-        # Eliminar dims extra (1, N) -> (N,)
         audio_data = np.squeeze(audio_data)
         
-        if len(audio_data) < 500: 
-            return # Demasiado corto
+        if len(audio_data) < 500: return 
             
         # Normalizar
         mx = np.max(np.abs(audio_data))
         if mx > 0: audio_data = audio_data / mx * 0.9 
         
-        # Reproducir (Blocking para evitar superposición)
+        # Reproducir (Blocking)
         sd.play(audio_data, sample_rate)
         sd.wait()
 
@@ -123,12 +120,15 @@ def apply_auto_gain(audio_chunk, target_rms=0.1):
     new_rms = np.sqrt(np.mean(audio_chunk**2))
     return audio_chunk, new_rms
 
-def trim_silence_from_end(audio_np, threshold=0.01):
-    for i in range(len(audio_np) - 1, 0, -1):
-        if abs(audio_np[i]) > threshold:
-            padding = int(16000 * 0.2) 
-            return audio_np[:min(i + padding, len(audio_np))]
-    return audio_np
+def soften_audio(audio_data, rate=16000):
+    """Filtro Low-Pass para eliminar el sonido metálico/hiss de los 16k"""
+    try:
+        # Filtro Butterworth Low-Pass a 7.5kHz
+        sos = scipy.signal.butter(10, 7500, 'low', fs=rate, output='sos')
+        filtered = scipy.signal.sosfilt(sos, audio_data)
+        return filtered
+    except:
+        return audio_data
 
 def play_startup_sound():
     print(f"\n🔔 BEEP DE PRUEBA...")
@@ -137,7 +137,6 @@ def play_startup_sound():
     play_audio_cmd(tone, fs)
 
 def export_subtitle(text):
-    """Escribe el subtítulo en un archivo compartido para el video service"""
     try:
         with open("subtitle_stream.txt", "w", encoding="utf-8") as f:
             f.write(text)
@@ -150,7 +149,6 @@ def export_subtitle(text):
 def main():
     print_header()
     in_idx = find_active_microphone()
-    # Output delegated to OS (paplay)
     
     i_info = sd.query_devices(in_idx)
     native_in_rate = int(i_info['default_samplerate'])
@@ -178,32 +176,25 @@ def main():
 
     print(f"\n🟢 SISTEMA LISTO v20. NEURAL VAD ACTIVO.")
     
-    # Cola para comunicación thread-safe
-    import queue
     q = queue.Queue()
     
     def callback(indata, frames, time, status):
-        """Este callback se llama para cada bloque de audio nuevo"""
-        if status:
-            print(status, file=sys.stderr)
+        if status: print(status, file=sys.stderr)
         q.put(indata.copy())
 
     # Variables de estado VAD
     SILENCE_LIMIT = 0.5
     PRE_RECORD = 0.5
-    SPEECH_THRESHOLD = 0.4 # Más sensible (Expert Tuning)
+    SPEECH_THRESHOLD = 0.4 
     
-    # Estado
     is_recording = False
     silence_counter = 0
     audio_buffer = []
     
-    # Pre-calcular tamaños
-    block_size = int(native_in_rate * 0.1) # Bloques de 100ms
+    block_size = int(native_in_rate * 0.1) 
     silence_blocks_limit = int(SILENCE_LIMIT / 0.1)
     pre_record_blocks = int(PRE_RECORD / 0.1)
     
-    # Buffer circular para pre-roll (guardar el inicio de la frase)
     pre_roll_buffer = collections.deque(maxlen=pre_record_blocks)
 
     try:
@@ -211,31 +202,21 @@ def main():
             print(f"👂 Escuchando... (Habla)")
             
             while True:
-                # 1. Obtener audio (Bloqueante)
                 indata = q.get()
-                
-                # Preparar para VAD (Normalizar y convertir a Tensor)
                 audio_np = indata.flatten()
                 
                 max_val = np.abs(audio_np).max()
-                
-                # Convertir a Tensor para Silero
                 audio_tensor = torch.from_numpy(audio_np).float()
                 if DEVICE == "cuda": audio_tensor = audio_tensor.cuda()
                 
-                # Solo ejecutamos VAD si hay ALGO de energía
                 if max_val > 0.001:
-                    # 1. Resamplear a 16000 Hz si es necesario
                     if native_in_rate != 16000:
                         vad_input = F.resample(audio_tensor.unsqueeze(0), native_in_rate, 16000).squeeze(0)
                     else:
                         vad_input = audio_tensor
 
-                    # 2. Silero EXIGE chunks de 512 muestras (32ms) a 16k
                     VAD_WINDOW = 512
                     num_samples = vad_input.shape[0]
-                    
-                    # Cortamos en trozos de 512
                     probs = []
                     for i in range(0, num_samples, VAD_WINDOW):
                         chunk = vad_input[i: i + VAD_WINDOW]
@@ -248,11 +229,8 @@ def main():
                     speech_prob = 0.0
                 
                 # --- MÁQUINA DE ESTADOS NEURONAL ---
-                
                 if not is_recording:
-                    # ESTADO: ESPERANDO
                     pre_roll_buffer.append(indata)
-                    
                     if speech_prob > SPEECH_THRESHOLD:
                         print(f"\n🗣️ Voz Humana Detectada ({speech_prob:.2f})! Grabando...")
                         is_recording = True
@@ -260,9 +238,7 @@ def main():
                         audio_buffer = list(pre_roll_buffer)
                         audio_buffer.append(indata)
                         pre_roll_buffer.clear()
-
                 else:
-                    # ESTADO: GRABANDO
                     audio_buffer.append(indata)
                     
                     if speech_prob < SPEECH_THRESHOLD:
@@ -270,7 +246,6 @@ def main():
                     else:
                         silence_counter = 0 
                     
-                    # Chequear si llevamos mucho silencio
                     if silence_counter > silence_blocks_limit:
                         print(f"✅ Frase terminada ({len(audio_buffer)*0.1:.1f}s). Procesando...")
                         
@@ -282,15 +257,17 @@ def main():
                         if DEVICE == "cuda": inputs = {k: v.to(torch.bfloat16) if v.dtype == torch.float32 else v for k, v in inputs.items()}
 
                         with torch.no_grad():
-                            # MODO S2ST DIRECTO
+                            # MODO S2ST DIRECTO CON HUMANIZACIÓN
                             out = model.generate(
                                 input_features=inputs["input_features"],
                                 tgt_lang="eng",
+                                speaker_id=8,
                                 generate_speech=True,
-                                return_dict_in_generate=True
+                                return_dict_in_generate=True,
+                                do_sample=True,      # <--- Muestreo activado (Adiós robot)
+                                temperature=0.7      # <--- Creatividad controlada
                             )
                         
-                        # 1. Extraer Texto
                         try: 
                             if hasattr(out, 'sequences') and out.sequences is not None:
                                 trans_text = processor.decode(out.sequences[0], skip_special_tokens=True)
@@ -298,7 +275,6 @@ def main():
                                 trans_text = ""
                         except: trans_text = ""
 
-                        # 2. Extraer Audio
                         wav = None
                         if hasattr(out, 'waveform'): wav = out.waveform
                         elif isinstance(out, tuple): wav = out[0]
@@ -307,12 +283,10 @@ def main():
                         if torch.is_tensor(wav):
                             wav = wav.detach().cpu().float().numpy()
 
-                        # --- LÓGICA EXPERTA DE FILTRADO ---
                         should_play = False
                         
-                        # Caso A: Texto Válido
                         if trans_text and len(trans_text.strip()) >= 2:
-                            hallucinations = ["Un des...", "The...", "It's...", "I'm...", "You...", "nt..."]
+                            hallucinations = ["Un des...", "The...", "It's...", "I'm...", "You...", "nt...", "S...", "a...", "i..."]
                             if trans_text.strip() not in hallucinations:
                                 should_play = True
                                 print(f"📝 EN: {trans_text}")
@@ -320,7 +294,6 @@ def main():
                             else:
                                 print(f"🚫 Alucinación bloqueada: '{trans_text}'")
                         
-                        # Caso B: Solo Audio
                         elif wav is not None and len(wav.flatten()) > 16000: 
                              print(f"⚠️ Audio sin texto legible. Reproduciendo...")
                              should_play = True
@@ -329,21 +302,25 @@ def main():
                             print("🔇 Ignorado (Ruido/Silencio).")
 
                         if should_play and wav is not None:
+                            # 1. APLICAR FILTRO DE SUAVIZADO
+                            wav = soften_audio(wav) 
+                            
+                            # 2. REPRODUCIR
                             play_audio_cmd(wav, MODEL_RATE)
                             
-                            # --- ECHO CANCELLATION (PURGA) ---
-                            # El micro grabó mientras el speaker hablaba.
-                            # Si no borramos esa grabación, el sistema se escuchará a sí mismo y entrará en bucle.
-                            print("🧹 Purgando eco (audio grabado durante reproducción)...")
+                            # 3. PURGA MAESTRA DE ECO
+                            print("🧹 Purgando eco y residuos de sala...")
+                            
+                            # Pequeña pausa para dejar caer la reverberación real de la habitación
+                            time.sleep(0.2) 
+                            
+                            # Vaciar cola de audio entrante
                             while not q.empty():
                                 try: q.get_nowait()
                                 except: break
-                            # Pequeña pausa extra para reverberación de la sala
-                            time.sleep(0.2)
-                            # Purgar remanente
-                            while not q.empty():
-                                try: q.get_nowait()
-                                except: break
+                            
+                            # Vaciar buffer de pre-roll para que el eco no dispare una nueva grabación
+                            pre_roll_buffer.clear()
 
                         # --- RESET ---
                         is_recording = False
