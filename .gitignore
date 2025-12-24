@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Entornos Virtuales
+env/
+venv/
+.venv/
+virtualenv/
+
+# Audio Temporales (Generados por live_translator)
+*.wav
+*.mp3
+subtitle_stream.txt
+
+# Carpeta de Basura/Backup
+_basura/
+
+# IDEs y Editores
+.vscode/
+.idea/
+*.swp
+
+# Sistema Operativo
+.DS_Store
+Thumbs.db
+
+# Modelos Pesados de IA (NO SUBIR)
+local_translator/models/
+models/
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Cachés Locales (HuggingFace, Torch, etc)
+.cache/
+cache/

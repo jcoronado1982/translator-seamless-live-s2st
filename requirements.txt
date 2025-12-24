@@ -1,0 +1,9 @@
+--index-url https://download.pytorch.org/whl/nightly/cu128
+numpy<2.0.0
+sounddevice>=0.4.6
+transformers>=4.57.0
+torch>=2.11.0.dev20251224
+sentencepiece>=0.1.99
+protobuf>=4.25.0
+opencv-python>=4.8.0
+scipy>=1.15.0

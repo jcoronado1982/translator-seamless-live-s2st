@@ -1,0 +1,26 @@
+version: "2.4"
+
+services:
+  translator:
+    build: .
+    container_name: live_translator_gpu
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # Configurar PulseAudio para usar el servidor del Host
+      - PULSE_SERVER=unix:/run/user/1000/pulse/native
+      - PULSE_COOKIE=/root/.config/pulse/cookie
+    volumes:
+      - .:/app
+      # Mapear el socket de audio y la cookie de autenticación
+      - /run/user/1000/pulse:/run/user/1000/pulse
+      - ~/.config/pulse/cookie:/root/.config/pulse/cookie
+    devices:
+      # Video (Webcam + Loopback)
+      - /dev/video0:/dev/video0
+      - /dev/video20:/dev/video20
+      # Audio (Opcional si falla pulse, pero Pulse debe ir primero)
+      - /dev/snd:/dev/snd
+    user: "0:0" # Ejecutar como root para evitar problemas de permisos con /dev
+    command: ./start_all.sh
